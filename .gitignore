@@ -1,0 +1,11 @@
+/.bundle/
+*.gem
+/Gemfile.lock
+/pkg/
+/tmp/
+*.bundle
+*.so
+*.o
+Makefile
+mkmf.log
+*.dSYM/
