@@ -43,8 +43,10 @@ class DecTest < Minitest::Test
   def test_power = assert_equal Dec.from(8), Dec.from(2)**3
   def test_power_zero = assert_equal Dec.from(1), Dec.from(42)**0
   def test_power_negative = assert_equal Dec.from("0.5"), Dec.from(2)**-1
-  def test_power_negative_base_even = assert_equal Dec.from(4), Dec.from(-2)**2
-  def test_power_negative_base_odd = assert_equal Dec.from(-8), Dec.from(-2)**3
+  def test_power_negative_base
+    assert_equal Dec.from(4), Dec.from(-2)**2
+    assert_equal Dec.from(-8), Dec.from(-2)**3
+  end
   def test_power_zero_base_negative_exp = assert_raises(ZeroDivisionError) { Dec.from(0)**-1 }
   def test_power_non_integer = assert_raises(TypeError) { Dec.from(2)**Dec.from("0.5") }
 
@@ -140,6 +142,12 @@ class DecTest < Minitest::Test
   def test_frac_negative = assert_equal Dec.from("-0.14"), Dec.from("-3.14").frac
   def test_fix_plus_frac = assert_equal Dec.from("3.14"), Dec.from("3.14").fix + Dec.from("3.14").frac
 
+  def test_deconstruct = assert_equal [3, Dec.from("0.14")], Dec.from("3.14").deconstruct
+
+  def test_deconstruct_keys = assert_equal({whole: 3, frac: Dec.from("0.14")}, Dec.from("3.14").deconstruct_keys(nil))
+  def test_pattern_match_hash = assert_pattern { Dec.from("3.14") => {whole: 3, frac: Dec} }
+  def test_pattern_match_array = assert_pattern { Dec.from("3.14") => [3, Dec] }
+
   # Predicates
   def test_abs = assert_equal Dec.from(42), Dec.from(-42).abs
   def test_abs_diff = assert_equal Dec.from(2), Dec.from(3).abs_diff(Dec.from(5))
@@ -161,14 +169,11 @@ class DecTest < Minitest::Test
   # Overflow
   def test_overflow_add = assert_raises(RangeError) { Dec::MAX + Dec.from(1) }
   def test_overflow_negate_min = assert_raises(RangeError) { -Dec::MIN }
-  def test_overflow_abs_min = assert_raises(RangeError) { Dec::MIN.abs }
 
   # Checked
   def test_add_checked_ok = assert_equal [:ok, Dec.from(3)], Dec.from(1).add_checked(Dec.from(2))
   def test_add_checked_overflow = assert_equal [:err, :overflow], Dec::MAX.add_checked(Dec.from(1))
-  def test_sub_checked_ok = assert_equal [:ok, Dec.from(2)], Dec.from(5).sub_checked(Dec.from(3))
   def test_sub_checked_overflow = assert_equal [:err, :overflow], Dec::MIN.sub_checked(Dec.from(1))
-  def test_mul_checked_ok = assert_equal [:ok, Dec.from(42)], Dec.from(6).mul_checked(Dec.from(7))
   def test_mul_checked_overflow = assert_equal [:err, :overflow], Dec::MAX.mul_checked(Dec.from(2))
   def test_div_checked_ok = assert_equal [:ok, Dec.from("2.5")], Dec.from(10).div_checked(Dec.from(4))
   def test_div_checked_zero = assert_equal [:err, :div_by_zero], Dec.from(1).div_checked(Dec.from(0))

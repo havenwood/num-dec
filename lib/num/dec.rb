@@ -138,6 +138,13 @@ module Num
     def fix = self.class.new(raw.negative? ? -(-raw / SCALE) * SCALE : (raw / SCALE) * SCALE)
     def frac = self - fix
 
+    def deconstruct = [to_i, frac]
+
+    def deconstruct_keys(keys)
+      h = {whole: to_i, frac: frac}
+      keys ? h.slice(*keys) : h
+    end
+
     # Rounding
     def floor(ndigits = 0)
       return self if ndigits >= 18

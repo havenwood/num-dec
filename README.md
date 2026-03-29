@@ -131,6 +131,22 @@ Num::Dec::MAX.add_checked(Num::Dec.from(1))    #=> [:err, :overflow]
 Num::Dec.from(1).div_checked(Num::Dec.from(0))  #=> [:err, :div_by_zero]
 ```
 
+### Pattern Matching
+
+Dec supports `deconstruct` and `deconstruct_keys` for pattern matching:
+
+```ruby
+case Num::Dec.from("3.14")
+in {whole: 0..9, frac:}
+  puts "single digit, fractional part: #{frac}"
+end
+
+case Num::Dec.from("3.14")
+in [3, frac]
+  puts "three and #{frac}"
+end
+```
+
 ### Conversion
 
 ```ruby
