@@ -43,10 +43,12 @@ class DecTest < Minitest::Test
   def test_power = assert_equal Dec.from(8), Dec.from(2)**3
   def test_power_zero = assert_equal Dec.from(1), Dec.from(42)**0
   def test_power_negative = assert_equal Dec.from("0.5"), Dec.from(2)**-1
+
   def test_power_negative_base
     assert_equal Dec.from(4), Dec.from(-2)**2
     assert_equal Dec.from(-8), Dec.from(-2)**3
   end
+
   def test_power_zero_base_negative_exp = assert_raises(ZeroDivisionError) { Dec.from(0)**-1 }
   def test_power_non_integer = assert_raises(TypeError) { Dec.from(2)**Dec.from("0.5") }
 
