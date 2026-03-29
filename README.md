@@ -3,10 +3,10 @@
 Exact decimal arithmetic for Ruby. A 128-bit fixed-point number with 18 decimal places, inspired by [Roc's `Dec`](https://www.roc-lang.org/builtins/Num#Dec).
 
 ```ruby
-require "num/dec"
+require "num/dec/core_ext"
 
-a = Num::Dec.from("19.99")
-b = Num::Dec.from("1.50")
+a = "19.99".to_dec
+b = "1.50".to_dec
 a + b  #=> 21.49dec
 a * b  #=> 29.985dec
 ```
@@ -14,7 +14,7 @@ a * b  #=> 29.985dec
 No floating-point surprises:
 
 ```ruby
-Num::Dec.from("0.1") + Num::Dec.from("0.2") == Num::Dec.from("0.3")  #=> true
+"0.1".to_dec + "0.2".to_dec == "0.3".to_dec  #=> true
 ```
 
 ## Why not Float, Rational or BigDecimal?
@@ -30,7 +30,7 @@ Num::Dec.from("0.1") + Num::Dec.from("0.2") == Num::Dec.from("0.3")  #=> true
 ## Usage
 
 ```ruby
-prices = [Num::Dec.from("9.99"), Num::Dec.from("4.50"), Num::Dec.from("12.00")]
+prices = ["9.99".to_dec, "4.50".to_dec, "12.00".to_dec]
 prices.sort   #=> [4.5dec, 9.99dec, 12.0dec]
 prices.min    #=> 4.5dec
 prices.sum                #=> 26.49dec
@@ -39,47 +39,40 @@ Num::Dec.sum(prices)      #=> 26.49dec  (41x faster with C ext)
 
 ### Construction
 
-`Num::Dec.from` and `Num::Dec[]` accept Integer, Float, String, Rational or Dec:
+`require "num/dec/core_ext"` adds `to_dec` on Integer, Float, Rational and String plus a `Dec()` kernel method (like `Integer()` or `Rational()`):
 
 ```ruby
+42.to_dec              #=> 42.0dec
+"3.14".to_dec          #=> 3.14dec
+0.25.to_dec            #=> 0.25dec
+Rational(1, 3).to_dec  #=> 0.333333333333333333dec
+
+Dec(42)       #=> 42.0dec
+Dec("3.14")   #=> 3.14dec
+```
+
+Passing an existing Dec returns it unchanged. Use `exception: false` to get nil on invalid input:
+
+```ruby
+Dec("bad", exception: false)  #=> nil
+```
+
+Without core extensions, `Num::Dec.from` and `Num::Dec[]` provide the same conversions:
+
+```ruby
+require "num/dec"
+
 Num::Dec.from(42)              #=> 42.0dec
 Num::Dec["3.14"]               #=> 3.14dec
 Num::Dec.from(0.25)            #=> 0.25dec
 Num::Dec.from(Rational(1, 3))  #=> 0.333333333333333333dec
 ```
 
-Passing an existing Dec returns it unchanged. Use `exception: false` to get nil on invalid input:
-
-```ruby
-Num::Dec.from("bad", exception: false)  #=> nil
-```
-
-### Converter
-
-Include `Num` for a `Dec()` converter (like `Integer()` or `Rational()`):
-
-```ruby
-include Num
-
-Dec(42)       #=> 42.0dec
-Dec("3.14")   #=> 3.14dec
-```
-
-Or load core extensions for `to_dec` and `Kernel#Dec`:
-
-```ruby
-require "num/dec/core_ext"
-
-42.to_dec     #=> 42.0dec
-"3.14".to_dec #=> 3.14dec
-Dec(42)       #=> 42.0dec
-```
-
 ### Arithmetic
 
 ```ruby
-a = Num::Dec.from("10")
-b = Num::Dec.from("3")
+a = 10.to_dec
+b = 3.to_dec
 
 a + b   #=> 13.0dec
 a - b   #=> 7.0dec
@@ -93,8 +86,8 @@ a ** 3  #=> 1000.0dec
 Integer and Rational coerce automatically:
 
 ```ruby
-5 + Num::Dec.from(2)                #=> 7.0dec
-Rational(1, 4) + Num::Dec.from(1)   #=> 1.25dec
+5 + Dec(2)                #=> 7.0dec
+Rational(1, 4) + 1.to_dec #=> 1.25dec
 ```
 
 ### Rounding
@@ -102,7 +95,7 @@ Rational(1, 4) + Num::Dec.from(1)   #=> 1.25dec
 All rounding methods accept an optional `ndigits`. `round` also accepts `half: :up | :down | :even`:
 
 ```ruby
-d = Num::Dec.from("3.14")
+d = "3.14".to_dec
 d.floor          #=> 3
 d.ceil           #=> 4
 d.round          #=> 3
@@ -111,8 +104,8 @@ d.truncate       #=> 3
 d.fix            #=> 3.0dec
 d.frac           #=> 0.14dec
 
-Num::Dec.from("2.5").round(half: :even)  #=> 2
-Num::Dec.from("3.5").round(half: :even)  #=> 4
+"2.5".to_dec.round(half: :even)  #=> 2
+"3.5".to_dec.round(half: :even)  #=> 4
 ```
 
 ### Range and Overflow
@@ -127,21 +120,19 @@ Num::Dec::MIN  #=> -170141183460469231731.687303715884105728dec
 Overflow raises `RangeError`. Checked variants return tuples:
 
 ```ruby
-Num::Dec::MAX.add_checked(Num::Dec.from(1))    #=> [:err, :overflow]
-Num::Dec.from(1).div_checked(Num::Dec.from(0))  #=> [:err, :div_by_zero]
+Num::Dec::MAX.add_checked(1.to_dec)    #=> [:err, :overflow]
+1.to_dec.div_checked(0.to_dec)         #=> [:err, :div_by_zero]
 ```
 
 ### Pattern Matching
 
-Dec supports `deconstruct` and `deconstruct_keys` for pattern matching:
-
 ```ruby
-case Num::Dec.from("3.14")
+case "3.14".to_dec
 in {whole: 0..9, frac:}
   puts "single digit, fractional part: #{frac}"
 end
 
-case Num::Dec.from("3.14")
+case "3.14".to_dec
 in [3, frac]
   puts "three and #{frac}"
 end
@@ -150,7 +141,7 @@ end
 ### Conversion
 
 ```ruby
-d = Num::Dec.from("3.14")
+d = "3.14".to_dec
 d.to_f      #=> 3.14
 d.to_i      #=> 3
 d.to_r      #=> (157/50)
