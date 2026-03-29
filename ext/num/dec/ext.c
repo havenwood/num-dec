@@ -40,7 +40,7 @@ static const rb_data_type_t dec_type = {
 static const i128 SCALE = (i128)1000000000000000000LL;
 static VALUE rb_cDec;
 static VALUE dec_zero; /* cached Dec(0) to avoid allocation */
-static ID id_to_r, id_cmp, id_neg;
+static ID id_to_r, id_cmp, id_neg, id_floor, id_ceil;
 
 static inline i128
 dec_get(VALUE self)
@@ -452,15 +452,81 @@ dec_to_i(VALUE self)
     return i128_to_ruby(dec_get(self) / SCALE);
 }
 
+static const int64_t POW10[] = {
+    1LL, 10LL, 100LL, 1000LL, 10000LL, 100000LL, 1000000LL,
+    10000000LL, 100000000LL, 1000000000LL, 10000000000LL,
+    100000000000LL, 1000000000000LL, 10000000000000LL,
+    100000000000000LL, 1000000000000000LL, 10000000000000000LL,
+    100000000000000000LL, 1000000000000000000LL
+};
+
+static VALUE
+dec_floor(int argc, VALUE *argv, VALUE self)
+{
+    rb_check_arity(argc, 0, 1);
+    int ndigits = argc > 0 ? NUM2INT(argv[0]) : 0;
+    i128 v = dec_get(self);
+
+    if (ndigits >= 18) return self;
+
+    if (ndigits <= 0) {
+        i128 q = v / SCALE;
+        if (v < 0 && v % SCALE != 0) q--;
+        VALUE result = i128_to_ruby(q);
+        if (ndigits == 0) return result;
+        return rb_funcall(result, id_floor, 1, INT2FIX(ndigits));
+    }
+
+    i128 factor = (i128)POW10[18 - ndigits];
+    i128 q = v / factor;
+    if (v < 0 && v % factor != 0) q--;
+    i128 result;
+    if (__builtin_mul_overflow(q, factor, &result))
+        rb_raise(rb_eRangeError, "Dec overflow");
+    return dec_wrap(result);
+}
+
+static VALUE
+dec_ceil(int argc, VALUE *argv, VALUE self)
+{
+    rb_check_arity(argc, 0, 1);
+    int ndigits = argc > 0 ? NUM2INT(argv[0]) : 0;
+    i128 v = dec_get(self);
+
+    if (ndigits >= 18) return self;
+
+    if (ndigits <= 0) {
+        i128 q = v / SCALE;
+        i128 r = v % SCALE;
+        if (r < 0) { q--; r += SCALE; }
+        if (r != 0) q++;
+        VALUE result = i128_to_ruby(q);
+        if (ndigits == 0) return result;
+        return rb_funcall(result, id_ceil, 1, INT2FIX(ndigits));
+    }
+
+    i128 factor = (i128)POW10[18 - ndigits];
+    i128 q = v / factor;
+    i128 r = v % factor;
+    if (r < 0) { q--; r += factor; }
+    if (r == 0) return self;
+    i128 result;
+    if (__builtin_mul_overflow(q + 1, factor, &result))
+        rb_raise(rb_eRangeError, "Dec overflow");
+    return dec_wrap(result);
+}
+
 void
 Init_ext(void)
 {
     VALUE rb_mNum = rb_const_get(rb_cObject, rb_intern_const("Num"));
     rb_cDec = rb_const_get(rb_mNum, rb_intern_const("Dec"));
 
-    id_to_r = rb_intern_const("to_r");
-    id_cmp  = rb_intern_const("<=>");
-    id_neg  = rb_intern_const("-@");
+    id_to_r  = rb_intern_const("to_r");
+    id_cmp   = rb_intern_const("<=>");
+    id_neg   = rb_intern_const("-@");
+    id_floor = rb_intern_const("floor");
+    id_ceil  = rb_intern_const("ceil");
 
     rb_define_alloc_func(rb_cDec, dec_alloc);
 
@@ -500,8 +566,10 @@ Init_ext(void)
     rb_define_method(rb_cDec, "fix",       dec_fix, 0);
     rb_define_method(rb_cDec, "frac",      dec_frac, 0);
 
-    rb_define_method(rb_cDec, "to_f", dec_to_f, 0);
-    rb_define_method(rb_cDec, "to_i", dec_to_i, 0);
+    rb_define_method(rb_cDec, "to_f",  dec_to_f, 0);
+    rb_define_method(rb_cDec, "to_i",  dec_to_i, 0);
+    rb_define_method(rb_cDec, "floor", dec_floor, -1);
+    rb_define_method(rb_cDec, "ceil",  dec_ceil, -1);
 
     rb_define_singleton_method(rb_cDec, "sum", dec_s_sum, -1);
 }
