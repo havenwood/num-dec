@@ -55,6 +55,10 @@ module Num
       freeze
     end
 
+    def marshal_dump = raw
+
+    def marshal_load(raw) = initialize(raw)
+
     # Arithmetic (truncate-toward-zero for * and /)
     def +(other) = self.class.new(raw + other.raw)
     def -(other) = self.class.new(raw - other.raw)

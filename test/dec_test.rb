@@ -168,6 +168,9 @@ class DecTest < Minitest::Test
   def test_max = assert_equal "170141183460469231731.687303715884105727", Dec::MAX.to_s
   def test_min = assert_equal "-170141183460469231731.687303715884105728", Dec::MIN.to_s
 
+  # Marshal
+  def test_marshal_round_trip = assert_equal Dec.from("3.14"), Marshal.load(Marshal.dump(Dec.from("3.14")))
+
   # Overflow
   def test_overflow_add = assert_raises(RangeError) { Dec::MAX + Dec.from(1) }
   def test_overflow_negate_min = assert_raises(RangeError) { -Dec::MIN }
