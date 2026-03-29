@@ -1,54 +1,58 @@
 # Num::Dec
 
-Exact decimal arithmetic for Ruby. A 128-bit fixed-point number with 18 decimal places, inspired by [Roc's `Dec`](https://www.roc-lang.org/builtins/Num#Dec).
-
-```ruby
-require "num/dec/core_ext"
-
-a = "19.99".to_dec
-b = "1.50".to_dec
-a + b  #=> 21.49dec
-a * b  #=> 29.985dec
-```
-
-No floating-point surprises:
+A decimal number for Ruby. Each value is a signed 128-bit integer scaled by 10^18, so decimal fractions are exact in memory. You get 18 decimal places of precision and whole numbers up to ~170 quintillion. Every instance is frozen and Ractor-shareable.
 
 ```ruby
 "0.1".to_dec + "0.2".to_dec == "0.3".to_dec  #=> true
 ```
 
-## Why not Float, Rational or BigDecimal?
+## A Ruby Numeric
 
-**Float** is fast but inexact in base 10. `0.1 + 0.2 != 0.3`.
-
-**Rational** is exact but slow (allocates two bignums per value) and prints as fractions (`3/10` not `0.3`).
-
-**BigDecimal** is exact and arbitrary-precision but heavy. It allocates a variable-length digit array on the heap, requires `require "bigdecimal"` (bundled gem in Ruby 4.0) and its API differs from core numerics.
-
-**Num::Dec** is exact, fixed-precision (18 decimal places) and lightweight. One 128-bit integer per value. Full `Numeric` subclass with operators, coercion, rounding and `Comparable`. About 1.8x faster than Rational with an optional C extension that brings it within 2x of Integer.
-
-## Usage
+Dec is a `Numeric` subclass with full operator support and coercion. It works anywhere Ruby numbers work.
 
 ```ruby
-prices = ["9.99".to_dec, "4.50".to_dec, "12.00".to_dec]
-prices.sort   #=> [4.5dec, 9.99dec, 12.0dec]
-prices.min    #=> 4.5dec
-prices.sum                #=> 26.49dec
-Num::Dec.sum(prices)      #=> 26.49dec  (41x faster with C ext)
+a, b = Dec(10), Dec(3)
+a + b   #=> 13.0dec
+a * b   #=> 30.0dec
+a / b   #=> 3.333333333333333333dec
+a ** 3  #=> 1000.0dec
+
+5 + Dec(2)              #=> 7.0dec
+Rational(1, 4) + Dec(1) #=> 1.25dec
+
+%w[9.99 4.50 12.00].map(&:to_dec).sort  #=> [4.5dec, 9.99dec, 12.0dec]
 ```
 
-### Construction
-
-`require "num/dec/core_ext"` adds `to_dec` on Integer, Float, Rational and String plus a `Dec()` kernel method (like `Integer()` or `Rational()`):
+Pattern matching, frozen and Ractor-shareable:
 
 ```ruby
+case "3.14".to_dec
+in {whole: 0..9, frac:}
+  frac  #=> 0.14dec
+end
+
+Ractor.shareable?("3.14".to_dec)  #=> true
+```
+
+## Construction
+
+```ruby
+# With core extensions (adds to_dec and Dec())
+require "num/dec/core_ext"
+
 42.to_dec              #=> 42.0dec
 "3.14".to_dec          #=> 3.14dec
 0.25.to_dec            #=> 0.25dec
 Rational(1, 3).to_dec  #=> 0.333333333333333333dec
+Dec(42)                #=> 42.0dec
+```
 
-Dec(42)       #=> 42.0dec
-Dec("3.14")   #=> 3.14dec
+```ruby
+# Without core extensions
+require "num/dec"
+
+Num::Dec.from(42)      #=> 42.0dec
+Num::Dec["3.14"]       #=> 3.14dec
 ```
 
 Passing an existing Dec returns it unchanged. Use `exception: false` to get nil on invalid input:
@@ -57,58 +61,24 @@ Passing an existing Dec returns it unchanged. Use `exception: false` to get nil 
 Dec("bad", exception: false)  #=> nil
 ```
 
-Without core extensions, `Num::Dec.from` and `Num::Dec[]` provide the same conversions:
+## Rounding
+
+`floor`, `ceil`, `round` and `truncate` accept an optional `ndigits`. `round` accepts `half: :up | :down | :even`:
 
 ```ruby
-require "num/dec"
+d = Dec("3.14")
+d.floor     #=> 3
+d.ceil      #=> 4
+d.round(1)  #=> 3.1dec
+d.truncate  #=> 3
 
-Num::Dec.from(42)              #=> 42.0dec
-Num::Dec["3.14"]               #=> 3.14dec
-Num::Dec.from(0.25)            #=> 0.25dec
-Num::Dec.from(Rational(1, 3))  #=> 0.333333333333333333dec
+d.fix   #=> 3.0dec
+d.frac  #=> 0.14dec
+
+Dec("2.5").round(half: :even)  #=> 2
 ```
 
-### Arithmetic
-
-```ruby
-a = 10.to_dec
-b = 3.to_dec
-
-a + b   #=> 13.0dec
-a - b   #=> 7.0dec
-a * b   #=> 30.0dec
-a / b   #=> 3.333333333333333333dec
-a % b   #=> 1.0dec
-a ** 3  #=> 1000.0dec
--a      #=> -10.0dec
-```
-
-Integer and Rational coerce automatically:
-
-```ruby
-5 + Dec(2)                #=> 7.0dec
-Rational(1, 4) + 1.to_dec #=> 1.25dec
-```
-
-### Rounding
-
-All rounding methods accept an optional `ndigits`. `round` also accepts `half: :up | :down | :even`:
-
-```ruby
-d = "3.14".to_dec
-d.floor          #=> 3
-d.ceil           #=> 4
-d.round          #=> 3
-d.round(1)       #=> 3.1dec
-d.truncate       #=> 3
-d.fix            #=> 3.0dec
-d.frac           #=> 0.14dec
-
-"2.5".to_dec.round(half: :even)  #=> 2
-"3.5".to_dec.round(half: :even)  #=> 4
-```
-
-### Range and Overflow
+## Range and Overflow
 
 Over 170 quintillion whole units with 18 decimal places:
 
@@ -120,45 +90,34 @@ Num::Dec::MIN  #=> -170141183460469231731.687303715884105728dec
 Overflow raises `RangeError`. Checked variants return tuples:
 
 ```ruby
-Num::Dec::MAX.add_checked(1.to_dec)    #=> [:err, :overflow]
-1.to_dec.div_checked(0.to_dec)         #=> [:err, :div_by_zero]
+Num::Dec::MAX.add_checked(Dec(1))  #=> [:err, :overflow]
+Dec(1).div_checked(Dec(0))         #=> [:err, :div_by_zero]
 ```
 
-### Pattern Matching
+## Conversion
 
-```ruby
-case "3.14".to_dec
-in {whole: 0..9, frac:}
-  puts "single digit, fractional part: #{frac}"
-end
+`to_f`, `to_i`, `to_r`, `to_s` and `integer?` work as expected.
 
-case "3.14".to_dec
-in [3, frac]
-  puts "three and #{frac}"
-end
-```
+## When to use something else
 
-### Conversion
+**Float** is the right choice for graphics, scientific computing or anywhere you need speed over decimal precision. It uses base-2 under the hood so `0.1 + 0.2` is not exactly `0.3`, but it runs in hardware and covers a vast range.
 
-```ruby
-d = "3.14".to_dec
-d.to_f      #=> 3.14
-d.to_i      #=> 3
-d.to_r      #=> (157/50)
-d.to_s      #=> "3.14"
-d.integer?  #=> false
-```
+**Rational** is exact and arbitrary-precision. Reach for it when you need fractions that can't be represented in 18 decimal places or when you want lossless arithmetic with no fixed range.
+
+**BigDecimal** is exact with arbitrary precision and a variable-length representation. It makes sense when you need more than 18 digits or need to control precision dynamically.
+
+**Dec** is a good default when you want exact base-10 arithmetic in a fixed, lightweight representation. One 128-bit integer per value with no heap allocation beyond the object itself.
 
 ## Performance
 
 An optional C extension embeds a native `__int128` directly in the Ruby object, bypassing bignum allocation entirely. With the C extension:
 
-- Arithmetic is **3-15x faster** than pure Ruby (biggest wins in `*`, `/` and `**`)
+- Arithmetic is **3-15x faster** than the pure Ruby fallback (biggest wins in `*`, `/` and `**`)
 - About **2x faster** than Rational for bulk arithmetic
 - Within **2-3x of Integer** for addition
-- `Dec.sum` loops in native i128 — about **130x faster** than `Array#sum`
+- `Dec.sum` loops in native i128, about **130x faster** than `Array#sum`
 
-Without the C extension the gem uses pure Ruby bignum arithmetic. Slower but correct on all platforms.
+Without the C extension, the gem uses pure Ruby bignum arithmetic. Slower but correct on all platforms.
 
 Run `ruby -Ilib bench/dec_bench.rb` to benchmark on your hardware.
 
@@ -168,10 +127,10 @@ Run `ruby -Ilib bench/dec_bench.rb` to benchmark on your hardware.
 gem "num-dec"
 ```
 
-The C extension compiles on install if the platform supports `__int128` (GCC and Clang on 64-bit). Otherwise the gem falls back to pure Ruby. Requires Ruby >= 4.0.
+The C extension compiles on install if the platform supports `__int128` (GCC and Clang on 64-bit). Otherwise, the gem falls back to pure Ruby. Requires Ruby >= 4.0.
 
 ## About
 
-The `Dec` type originates from [Roc](https://www.roc-lang.org/), a lovely functional language. Roc stores `Dec` as a signed 128-bit integer with a fixed 18-digit fractional part, giving exact decimal arithmetic without floating-point representation error. This gem brings the same semantics to Ruby.
+The `Dec` type originates from [Roc](https://www.roc-lang.org/), a functional language that uses Dec as its default numeric type for decimal values. Roc stores `Dec` as a signed 128-bit integer with a fixed 18-digit fractional part, giving exact decimal arithmetic without floating-point representation error. This gem brings the same semantics to Ruby as a `Numeric` subclass.
 
 See Roc's [numeric types tutorial](https://www.roc-lang.org/tutorial#numeric-types) and the [`Dec` builtins reference](https://www.roc-lang.org/builtins/Num#Dec) for background on the design.
