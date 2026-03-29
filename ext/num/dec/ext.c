@@ -40,7 +40,7 @@ static const rb_data_type_t dec_type = {
 static const i128 SCALE = (i128)1000000000000000000LL;
 static VALUE rb_cDec;
 static VALUE dec_zero; /* cached Dec(0) to avoid allocation */
-static ID id_to_r, id_cmp, id_neg, id_floor, id_ceil;
+static ID id_to_r, id_cmp, id_neg, id_floor, id_ceil, id_truncate;
 
 static inline i128
 dec_get(VALUE self)
@@ -516,6 +516,26 @@ dec_ceil(int argc, VALUE *argv, VALUE self)
     return dec_wrap(result);
 }
 
+static VALUE
+dec_truncate(int argc, VALUE *argv, VALUE self)
+{
+    rb_check_arity(argc, 0, 1);
+    int ndigits = argc > 0 ? NUM2INT(argv[0]) : 0;
+    i128 v = dec_get(self);
+
+    if (ndigits >= 18) return self;
+
+    if (ndigits <= 0) {
+        i128 q = v / SCALE;
+        VALUE result = i128_to_ruby(q);
+        if (ndigits == 0) return result;
+        return rb_funcall(result, id_truncate, 1, INT2FIX(ndigits));
+    }
+
+    i128 factor = (i128)POW10[18 - ndigits];
+    return dec_wrap((v / factor) * factor);
+}
+
 void
 Init_ext(void)
 {
@@ -525,8 +545,9 @@ Init_ext(void)
     id_to_r  = rb_intern_const("to_r");
     id_cmp   = rb_intern_const("<=>");
     id_neg   = rb_intern_const("-@");
-    id_floor = rb_intern_const("floor");
-    id_ceil  = rb_intern_const("ceil");
+    id_floor    = rb_intern_const("floor");
+    id_ceil     = rb_intern_const("ceil");
+    id_truncate = rb_intern_const("truncate");
 
     rb_define_alloc_func(rb_cDec, dec_alloc);
 
@@ -568,8 +589,9 @@ Init_ext(void)
 
     rb_define_method(rb_cDec, "to_f",  dec_to_f, 0);
     rb_define_method(rb_cDec, "to_i",  dec_to_i, 0);
-    rb_define_method(rb_cDec, "floor", dec_floor, -1);
-    rb_define_method(rb_cDec, "ceil",  dec_ceil, -1);
+    rb_define_method(rb_cDec, "floor",    dec_floor, -1);
+    rb_define_method(rb_cDec, "ceil",     dec_ceil, -1);
+    rb_define_method(rb_cDec, "truncate", dec_truncate, -1);
 
     rb_define_singleton_method(rb_cDec, "sum", dec_s_sum, -1);
 }
