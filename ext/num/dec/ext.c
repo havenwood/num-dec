@@ -236,6 +236,8 @@ static VALUE
 dec_add(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other), r;
+    if (a == 0) return other;
+    if (b == 0) return self;
     if (UNLIKELY(__builtin_add_overflow(a, b, &r)))
         dec_overflow();
     return dec_wrap(r);
@@ -245,6 +247,8 @@ static VALUE
 dec_sub(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other), r;
+    if (b == 0) return self;
+    if (a == b) return dec_zero;
     if (UNLIKELY(__builtin_sub_overflow(a, b, &r)))
         dec_overflow();
     return dec_wrap(r);
@@ -253,7 +257,9 @@ dec_sub(VALUE self, VALUE other)
 static VALUE
 dec_neg(VALUE self)
 {
-    i128 a = dec_get(self), r;
+    i128 a = dec_get(self);
+    if (a == 0) return self;
+    i128 r;
     if (UNLIKELY(__builtin_sub_overflow((i128)0, a, &r)))
         dec_overflow();
     return dec_wrap(r);
