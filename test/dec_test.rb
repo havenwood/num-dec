@@ -85,7 +85,12 @@ class DecTest < Minitest::Test
   end
 
   # Comparison
-  def test_compare = assert_operator Dec.from(1), :<, Dec.from(2)
+  def test_lt = assert_operator Dec.from(1), :<, Dec.from(2)
+  def test_le = assert_operator Dec.from(2), :<=, Dec.from(2)
+  def test_gt = assert_operator Dec.from(3), :>, Dec.from(2)
+  def test_ge = assert_operator Dec.from(2), :>=, Dec.from(2)
+  def test_lt_with_integer = assert_operator Dec.from(1), :<, 2
+  def test_gt_with_integer = assert_operator Dec.from(5), :>, 3
   def test_compare_with_integer = assert_equal 0, Dec.from(5) <=> 5
   def test_compare_with_rational = assert_equal 0, Dec.from("0.5") <=> Rational(1, 2)
   def test_compare_with_non_numeric = assert_nil Dec.from(1) <=> "foo"
@@ -163,6 +168,10 @@ class DecTest < Minitest::Test
   def test_frozen = assert_predicate Dec.from(1), :frozen?
   def test_shareable = assert Ractor.shareable?(Dec.from(1))
   def test_is_a_numeric = assert_kind_of Numeric, Dec.from(1)
+
+  # Construction disabled
+  def test_new_undefined = assert_raises(NoMethodError) { Dec.new(0) }
+  def test_allocate_raises = assert_raises(TypeError) { Dec.allocate }
 
   # Constants
   def test_max = assert_equal "170141183460469231731.687303715884105727", Dec::MAX.to_s
