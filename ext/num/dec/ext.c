@@ -533,6 +533,41 @@ static const int64_t POW10[] = {
     100000000000000000LL, 1000000000000000000LL
 };
 
+/* Reciprocal lookup tables for division-free x / 10^n (u64 inputs).
+   div_pow10(x, n) = (uint64_t)((u128)x * RECIP10[n] >> 64) >> SHIFT10[n] */
+static const uint64_t RECIP10[] = {
+    UINT64_C(0),
+    UINT64_C(0xCCCCCCCCCCCCCCCD),
+    UINT64_C(0xA3D70A3D70A3D70B),
+    UINT64_C(0x624DD2F1A9FBE77),
+    UINT64_C(0xD1B71758E219652C),
+    UINT64_C(0xA7C5AC471B478424),
+    UINT64_C(0x8637BD05AF6C69B6),
+    UINT64_C(0xD6BF94D5E57A42BD),
+    UINT64_C(0xABCC77118461CEFD),
+    UINT64_C(0x89705F4136B4A598),
+    UINT64_C(0xDBE6FECEBDEDD5BF),
+    UINT64_C(0xAFEBFF0BCB24AAFE),
+    UINT64_C(0x8CBCCC096F5088CC),
+    UINT64_C(0xE12E13424BB40E14),
+    UINT64_C(0xB424DC35095CD810),
+    UINT64_C(0x901D7CF73AB0ACD9),
+    UINT64_C(0xE69594BEC44DE15C),
+    UINT64_C(0xB877AA3236A4B44A),
+    UINT64_C(0x9392EE8E921D5D08)
+};
+
+static const uint8_t SHIFT10[] = {
+    0, 3, 6, 9, 13, 16, 19, 23, 26, 29, 33, 36, 39, 43, 46, 49, 53, 56, 59
+};
+
+static inline uint64_t
+div_pow10(uint64_t x, int n)
+{
+    if (n == 0) return x;
+    return (uint64_t)((u128)x * RECIP10[n] >> 64) >> SHIFT10[n];
+}
+
 static VALUE
 dec_floor(int argc, VALUE *argv, VALUE self)
 {
@@ -550,7 +585,18 @@ dec_floor(int argc, VALUE *argv, VALUE self)
         return rb_funcall(result, id_floor, 1, INT2FIX(ndigits));
     }
 
-    i128 factor = (i128)POW10[18 - ndigits];
+    int scale = 18 - ndigits;
+    u128 av = v < 0 ? -(u128)v : (u128)v;
+    if (av <= UINT64_MAX) {
+        uint64_t uv = (uint64_t)av;
+        uint64_t q = div_pow10(uv, scale);
+        uint64_t rem = uv - q * (uint64_t)POW10[scale];
+        if (v < 0 && rem != 0) q++;
+        u128 result = (u128)q * (u128)POW10[scale];
+        return dec_wrap(v < 0 ? -(i128)result : (i128)result);
+    }
+
+    i128 factor = (i128)POW10[scale];
     i128 q = v / factor;
     if (v < 0 && v % factor != 0) q--;
     i128 result;
@@ -578,7 +624,19 @@ dec_ceil(int argc, VALUE *argv, VALUE self)
         return rb_funcall(result, id_ceil, 1, INT2FIX(ndigits));
     }
 
-    i128 factor = (i128)POW10[18 - ndigits];
+    int scale = 18 - ndigits;
+    u128 av = v < 0 ? -(u128)v : (u128)v;
+    if (av <= UINT64_MAX) {
+        uint64_t uv = (uint64_t)av;
+        uint64_t q = div_pow10(uv, scale);
+        uint64_t rem = uv - q * (uint64_t)POW10[scale];
+        if (rem == 0) return self;
+        if (v >= 0) q++;
+        u128 result = (u128)q * (u128)POW10[scale];
+        return dec_wrap(v < 0 ? -(i128)result : (i128)result);
+    }
+
+    i128 factor = (i128)POW10[scale];
     i128 q = v / factor;
     i128 r = v % factor;
     if (r < 0) { q--; r += factor; }
@@ -605,7 +663,16 @@ dec_truncate(int argc, VALUE *argv, VALUE self)
         return rb_funcall(result, id_truncate, 1, INT2FIX(ndigits));
     }
 
-    i128 factor = (i128)POW10[18 - ndigits];
+    int scale = 18 - ndigits;
+    u128 av = v < 0 ? -(u128)v : (u128)v;
+    if (av <= UINT64_MAX) {
+        uint64_t uv = (uint64_t)av;
+        uint64_t q = div_pow10(uv, scale);
+        u128 result = (u128)q * (u128)POW10[scale];
+        return dec_wrap(v < 0 ? -(i128)result : (i128)result);
+    }
+
+    i128 factor = (i128)POW10[scale];
     return dec_wrap((v / factor) * factor);
 }
 
