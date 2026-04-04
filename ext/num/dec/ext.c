@@ -525,6 +525,69 @@ dec_to_i(VALUE self)
     return i128_to_ruby(dec_get(self) / SCALE);
 }
 
+static VALUE
+dec_to_r(VALUE self)
+{
+    return rb_Rational(i128_to_ruby(dec_get(self)), i128_to_ruby(SCALE));
+}
+
+static VALUE
+dec_to_s(VALUE self)
+{
+    i128 v = dec_get(self);
+    int neg = v < 0;
+    u128 av = neg ? -(u128)v : (u128)v;
+    u128 whole = av / (u128)SCALE;
+    u128 frac = av % (u128)SCALE;
+
+    /* Format whole part. */
+    char buf[80]; /* sign + 39 whole digits + '.' + 18 frac digits + '\0' */
+    int pos = 0;
+    if (neg) buf[pos++] = '-';
+
+    /* Write whole part digits in reverse, then flip. */
+    int start = pos;
+    if (whole == 0) {
+        buf[pos++] = '0';
+    }
+    else {
+        while (whole > 0) {
+            buf[pos++] = '0' + (int)(whole % 10);
+            whole /= 10;
+        }
+        for (int l = start, r = pos - 1; l < r; l++, r--) {
+            char tmp = buf[l]; buf[l] = buf[r]; buf[r] = tmp;
+        }
+    }
+
+    buf[pos++] = '.';
+
+    if (frac == 0) {
+        buf[pos++] = '0';
+    }
+    else {
+        /* Write 18 fractional digits, then strip trailing zeros. */
+        char frac_buf[18];
+        for (int i = 17; i >= 0; i--) {
+            frac_buf[i] = '0' + (int)(frac % 10);
+            frac /= 10;
+        }
+        int last = 17;
+        while (last > 0 && frac_buf[last] == '0') last--;
+        for (int i = 0; i <= last; i++) buf[pos++] = frac_buf[i];
+    }
+
+    return rb_str_new(buf, pos);
+}
+
+static VALUE
+dec_inspect(VALUE self)
+{
+    VALUE str = dec_to_s(self);
+    rb_str_cat_cstr(str, "dec");
+    return str;
+}
+
 static const int64_t POW10[] = {
     1LL, 10LL, 100LL, 1000LL, 10000LL, 100000LL, 1000000LL,
     10000000LL, 100000000LL, 1000000000LL, 10000000000LL,
@@ -741,8 +804,11 @@ Init_ext(void)
     rb_define_method(rb_cDec, "fix",       dec_fix, 0);
     rb_define_method(rb_cDec, "frac",      dec_frac, 0);
 
-    rb_define_method(rb_cDec, "to_f",  dec_to_f, 0);
-    rb_define_method(rb_cDec, "to_i",  dec_to_i, 0);
+    rb_define_method(rb_cDec, "to_f",      dec_to_f, 0);
+    rb_define_method(rb_cDec, "to_i",      dec_to_i, 0);
+    rb_define_method(rb_cDec, "to_r",      dec_to_r, 0);
+    rb_define_method(rb_cDec, "to_s",      dec_to_s, 0);
+    rb_define_method(rb_cDec, "inspect",   dec_inspect, 0);
     rb_define_method(rb_cDec, "floor",    dec_floor, -1);
     rb_define_method(rb_cDec, "ceil",     dec_ceil, -1);
     rb_define_method(rb_cDec, "truncate", dec_truncate, -1);
