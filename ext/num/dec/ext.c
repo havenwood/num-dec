@@ -14,6 +14,8 @@ typedef unsigned __int128 u128;
 #define RBOOL(v) ((v) ? Qtrue : Qfalse)
 #endif
 
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
+
 typedef struct {
     i128 value;
 } dec_t;
@@ -40,7 +42,14 @@ static const rb_data_type_t dec_type = {
 static const i128 SCALE = (i128)1000000000000000000LL;
 static VALUE rb_cDec;
 static VALUE dec_zero; /* cached Dec(0) to avoid allocation */
-static ID id_to_r, id_cmp, id_neg, id_floor, id_ceil, id_truncate;
+static ID id_to_r, id_cmp, id_neg, id_floor, id_ceil, id_truncate,
+         id_lt, id_le, id_gt, id_ge;
+
+__attribute__((cold, noreturn)) static void
+dec_overflow(void)
+{
+    rb_raise(rb_eRangeError, "Dec overflow");
+}
 
 static inline i128
 dec_get(VALUE self)
@@ -157,26 +166,9 @@ ruby_int_to_i128(VALUE integer)
     uint64_t words[2];
     int ret = rb_integer_pack(integer, words, 2, 8, 0,
                               INTEGER_PACK_LITTLE_ENDIAN | INTEGER_PACK_2COMP);
-    if (ret == 2 || ret == -2)
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(ret == 2 || ret == -2))
+        dec_overflow();
     return (i128)((u128)words[1] << 64 | words[0]);
-}
-
-static VALUE
-dec_alloc(VALUE klass)
-{
-    dec_t *d;
-    return TypedData_Make_Struct(klass, dec_t, &dec_type, d);
-}
-
-static VALUE
-dec_initialize(VALUE self, VALUE raw_int)
-{
-    dec_t *d;
-    TypedData_Get_Struct(self, dec_t, &dec_type, d);
-    d->value = ruby_int_to_i128(raw_int);
-    OBJ_FREEZE(self);
-    return self;
 }
 
 static VALUE
@@ -186,21 +178,43 @@ dec_raw(VALUE self)
 }
 
 static VALUE
+dec_s_wrap(VALUE klass, VALUE raw_int)
+{
+    (void)klass;
+    return dec_wrap(ruby_int_to_i128(raw_int));
+}
+
+static VALUE
 dec_from_integer(VALUE klass, VALUE integer)
 {
     (void)klass;
     i128 val = ruby_int_to_i128(integer), result;
-    if (__builtin_mul_overflow(val, SCALE, &result))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_mul_overflow(val, SCALE, &result)))
+        dec_overflow();
     return dec_wrap(result);
+}
+
+static VALUE
+dec_dump(VALUE self, VALUE level)
+{
+    (void)level;
+    return rb_funcall(i128_to_ruby(dec_get(self)), rb_intern_const("to_s"), 0);
+}
+
+static VALUE
+dec_s_load(VALUE klass, VALUE str)
+{
+    (void)klass;
+    VALUE raw = rb_funcall(str, rb_intern_const("to_i"), 0);
+    return dec_wrap(ruby_int_to_i128(raw));
 }
 
 static VALUE
 dec_add(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other), r;
-    if (__builtin_add_overflow(a, b, &r))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_add_overflow(a, b, &r)))
+        dec_overflow();
     return dec_wrap(r);
 }
 
@@ -208,8 +222,8 @@ static VALUE
 dec_sub(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other), r;
-    if (__builtin_sub_overflow(a, b, &r))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_sub_overflow(a, b, &r)))
+        dec_overflow();
     return dec_wrap(r);
 }
 
@@ -217,8 +231,8 @@ static VALUE
 dec_neg(VALUE self)
 {
     i128 a = dec_get(self), r;
-    if (__builtin_sub_overflow((i128)0, a, &r))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_sub_overflow((i128)0, a, &r)))
+        dec_overflow();
     return dec_wrap(r);
 }
 
@@ -231,7 +245,7 @@ dec_mul(VALUE self, VALUE other)
     if (b == SCALE) return self;
     int overflow = 0;
     i128 r = i128_mul_scaled(a, b, &overflow);
-    if (overflow) rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(overflow)) dec_overflow();
     return dec_wrap(r);
 }
 
@@ -239,12 +253,13 @@ static VALUE
 dec_div_op(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other);
-    if (b == 0) rb_raise(rb_eZeroDivError, "Dec division by zero");
+    if (UNLIKELY(b == 0))
+        rb_raise(rb_eZeroDivError, "Dec division by zero");
     if (a == 0) return dec_wrap(0);
     if (b == SCALE) return self;
     int overflow = 0;
     i128 r = i128_div_scaled(a, b, &overflow);
-    if (overflow) rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(overflow)) dec_overflow();
     return dec_wrap(r);
 }
 
@@ -252,7 +267,8 @@ static VALUE
 dec_mod(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other);
-    if (b == 0) rb_raise(rb_eZeroDivError, "Dec modulo by zero");
+    if (UNLIKELY(b == 0))
+        rb_raise(rb_eZeroDivError, "Dec modulo by zero");
     if (b == 1 || b == -1) return dec_wrap(0);
     i128 r = a % b;
     if (r != 0 && ((r ^ b) < 0)) r += b;
@@ -263,7 +279,8 @@ static VALUE
 dec_divmod(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other);
-    if (b == 0) rb_raise(rb_eZeroDivError, "Dec divmod by zero");
+    if (UNLIKELY(b == 0))
+        rb_raise(rb_eZeroDivError, "Dec divmod by zero");
     if (b == -1) {
         VALUE q = rb_funcall(i128_to_ruby(a), id_neg, 0);
         VALUE pair[2] = { q, dec_wrap(0) };
@@ -279,7 +296,8 @@ static VALUE
 dec_div_int(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other);
-    if (b == 0) rb_raise(rb_eZeroDivError, "Dec div by zero");
+    if (UNLIKELY(b == 0))
+        rb_raise(rb_eZeroDivError, "Dec div by zero");
     if (b == -1)
         return rb_funcall(i128_to_ruby(a), id_neg, 0);
     i128 q = a / b, r = a % b;
@@ -291,13 +309,13 @@ dec_div_int(VALUE self, VALUE other)
 static VALUE
 dec_pow(VALUE self, VALUE exp_val)
 {
-    if (!FIXNUM_P(exp_val) && !RB_TYPE_P(exp_val, T_BIGNUM))
+    if (UNLIKELY(!FIXNUM_P(exp_val) && !RB_TYPE_P(exp_val, T_BIGNUM)))
         rb_raise(rb_eTypeError, "Num::Dec#** supports only Integer exponents");
 
     long exp = NUM2LONG(exp_val);
     int neg = exp < 0;
     if (neg) {
-        if (exp == LONG_MIN) rb_raise(rb_eRangeError, "Dec overflow");
+        if (UNLIKELY(exp == LONG_MIN)) dec_overflow();
         exp = -exp;
     }
     if (exp == 0) return dec_wrap(SCALE);
@@ -308,19 +326,19 @@ dec_pow(VALUE self, VALUE exp_val)
     while (exp > 0) {
         if (exp & 1) {
             result = i128_mul_scaled(result, base, &overflow);
-            if (overflow) rb_raise(rb_eRangeError, "Dec overflow");
+            if (UNLIKELY(overflow)) dec_overflow();
         }
         exp >>= 1;
         if (exp > 0) {
             base = i128_mul_scaled(base, base, &overflow);
-            if (overflow) rb_raise(rb_eRangeError, "Dec overflow");
+            if (UNLIKELY(overflow)) dec_overflow();
         }
     }
     if (neg) {
-        if (result == 0)
+        if (UNLIKELY(result == 0))
             rb_raise(rb_eZeroDivError, "Dec division by zero");
         result = i128_div_scaled(SCALE, result, &overflow);
-        if (overflow) rb_raise(rb_eRangeError, "Dec overflow");
+        if (UNLIKELY(overflow)) dec_overflow();
     }
     return dec_wrap(result);
 }
@@ -339,6 +357,38 @@ dec_cmp(VALUE self, VALUE other)
         return rb_funcall(self_r, id_cmp, 1, other);
     }
     return Qnil;
+}
+
+static VALUE
+dec_lt(VALUE self, VALUE other)
+{
+    if (UNLIKELY(!rb_obj_is_kind_of(other, rb_cDec)))
+        return rb_num_coerce_relop(self, other, id_lt);
+    return RBOOL(dec_get(self) < dec_get(other));
+}
+
+static VALUE
+dec_le(VALUE self, VALUE other)
+{
+    if (UNLIKELY(!rb_obj_is_kind_of(other, rb_cDec)))
+        return rb_num_coerce_relop(self, other, id_le);
+    return RBOOL(dec_get(self) <= dec_get(other));
+}
+
+static VALUE
+dec_gt(VALUE self, VALUE other)
+{
+    if (UNLIKELY(!rb_obj_is_kind_of(other, rb_cDec)))
+        return rb_num_coerce_relop(self, other, id_gt);
+    return RBOOL(dec_get(self) > dec_get(other));
+}
+
+static VALUE
+dec_ge(VALUE self, VALUE other)
+{
+    if (UNLIKELY(!rb_obj_is_kind_of(other, rb_cDec)))
+        return rb_num_coerce_relop(self, other, id_ge);
+    return RBOOL(dec_get(self) >= dec_get(other));
 }
 
 static VALUE
@@ -381,8 +431,8 @@ dec_abs(VALUE self)
 {
     i128 a = dec_get(self), r;
     if (a >= 0) return self;
-    if (__builtin_sub_overflow((i128)0, a, &r))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_sub_overflow((i128)0, a, &r)))
+        dec_overflow();
     return dec_wrap(r);
 }
 
@@ -390,12 +440,12 @@ static VALUE
 dec_abs_diff(VALUE self, VALUE other)
 {
     i128 a = dec_get(self), b = dec_get(other), r;
-    if (__builtin_sub_overflow(a, b, &r))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_sub_overflow(a, b, &r)))
+        dec_overflow();
     if (r >= 0) return dec_wrap(r);
     i128 neg;
-    if (__builtin_sub_overflow((i128)0, r, &neg))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_sub_overflow((i128)0, r, &neg)))
+        dec_overflow();
     return dec_wrap(neg);
 }
 
@@ -433,8 +483,8 @@ dec_s_sum(int argc, VALUE *argv, VALUE klass)
     i128 acc = 0;
     for (long i = 0; i < len; i++) {
         i128 r;
-        if (__builtin_add_overflow(acc, dec_get(RARRAY_AREF(ary, i)), &r))
-            rb_raise(rb_eRangeError, "Dec overflow");
+        if (UNLIKELY(__builtin_add_overflow(acc, dec_get(RARRAY_AREF(ary, i)), &r)))
+            dec_overflow();
         acc = r;
     }
     return dec_wrap(acc);
@@ -481,8 +531,8 @@ dec_floor(int argc, VALUE *argv, VALUE self)
     i128 q = v / factor;
     if (v < 0 && v % factor != 0) q--;
     i128 result;
-    if (__builtin_mul_overflow(q, factor, &result))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_mul_overflow(q, factor, &result)))
+        dec_overflow();
     return dec_wrap(result);
 }
 
@@ -511,8 +561,8 @@ dec_ceil(int argc, VALUE *argv, VALUE self)
     if (r < 0) { q--; r += factor; }
     if (r == 0) return self;
     i128 result;
-    if (__builtin_mul_overflow(q + 1, factor, &result))
-        rb_raise(rb_eRangeError, "Dec overflow");
+    if (UNLIKELY(__builtin_mul_overflow(q + 1, factor, &result)))
+        dec_overflow();
     return dec_wrap(result);
 }
 
@@ -541,15 +591,18 @@ Init_ext(void)
 {
     VALUE rb_mNum = rb_const_get(rb_cObject, rb_intern_const("Num"));
     rb_cDec = rb_const_get(rb_mNum, rb_intern_const("Dec"));
+    VALUE singleton = rb_singleton_class(rb_cDec);
 
-    id_to_r  = rb_intern_const("to_r");
-    id_cmp   = rb_intern_const("<=>");
-    id_neg   = rb_intern_const("-@");
+    id_to_r     = rb_intern_const("to_r");
+    id_cmp      = rb_intern_const("<=>");
+    id_neg      = rb_intern_const("-@");
     id_floor    = rb_intern_const("floor");
     id_ceil     = rb_intern_const("ceil");
     id_truncate = rb_intern_const("truncate");
-
-    rb_define_alloc_func(rb_cDec, dec_alloc);
+    id_lt       = rb_intern_const("<");
+    id_le       = rb_intern_const("<=");
+    id_gt       = rb_intern_const(">");
+    id_ge       = rb_intern_const(">=");
 
     /* Cached zero avoids allocation for the common zero result. */
     dec_t *zd;
@@ -557,10 +610,17 @@ Init_ext(void)
     zd->value = 0;
     OBJ_FREEZE(dec_zero);
     rb_gc_register_mark_object(dec_zero);
-    rb_define_method(rb_cDec, "initialize", dec_initialize, 1);
+
+    /* Disable public construction. */
+    rb_undef_alloc_func(rb_cDec);
+    rb_undef_method(singleton, "new");
+
+    rb_define_private_method(singleton, "_wrap", dec_s_wrap, 1);
     rb_define_protected_method(rb_cDec, "raw", dec_raw, 0);
-    rb_define_private_method(rb_singleton_class(rb_cDec), "from_integer",
-                             dec_from_integer, 1);
+    rb_define_private_method(singleton, "from_integer", dec_from_integer, 1);
+
+    rb_define_method(rb_cDec, "_dump", dec_dump, 1);
+    rb_define_singleton_method(rb_cDec, "_load", dec_s_load, 1);
 
     rb_define_method(rb_cDec, "+",      dec_add, 1);
     rb_define_method(rb_cDec, "-",      dec_sub, 1);
@@ -575,6 +635,10 @@ Init_ext(void)
     rb_define_method(rb_cDec, "**",     dec_pow, 1);
 
     rb_define_method(rb_cDec, "<=>",  dec_cmp, 1);
+    rb_define_method(rb_cDec, "<",    dec_lt, 1);
+    rb_define_method(rb_cDec, "<=",   dec_le, 1);
+    rb_define_method(rb_cDec, ">",    dec_gt, 1);
+    rb_define_method(rb_cDec, ">=",   dec_ge, 1);
     rb_define_method(rb_cDec, "hash", dec_hash, 0);
     rb_define_method(rb_cDec, "eql?", dec_eql, 1);
 

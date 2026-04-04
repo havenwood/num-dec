@@ -9,9 +9,7 @@ module Num
     class << self
       def [](input) = from(input)
 
-      def sum(values)
-        values.reduce(new(0)) { |acc, dec| acc + dec }
-      end
+      def sum(values) = values.reduce(_wrap(0)) { |acc, dec| acc + dec }
 
       def from(input, exception: true)
         raw = case input
@@ -22,15 +20,27 @@ module Num
         when Rational then (input * SCALE).round
         else raise TypeError, "can't convert #{input.class} into Num::Dec"
         end
-        new(raw)
+        _wrap(raw)
       rescue ArgumentError, TypeError, RangeError
         raise if exception
         nil
       end
 
+      def _load(str) = _wrap(Integer(str))
+
+      undef_method :new
+
       private
 
-      def from_integer(input) = new(input * SCALE)
+      def _wrap(raw)
+        raise RangeError, "Dec overflow" unless raw.between?(MIN_RAW, MAX_RAW)
+        obj = allocate
+        obj.instance_variable_set(:@raw, raw)
+        obj.freeze
+        obj
+      end
+
+      def from_integer(input) = _wrap(input * SCALE)
 
       def parse(str)
         str = str.strip
@@ -49,31 +59,23 @@ module Num
       end
     end
 
-    def initialize(raw)
-      raise RangeError, "Dec overflow" unless raw.between?(MIN_RAW, MAX_RAW)
-      @raw = raw
-      freeze
-    end
-
-    def marshal_dump = raw
-
-    def marshal_load(raw) = initialize(raw)
+    def _dump(_level) = raw.to_s
 
     # Arithmetic (truncate-toward-zero for * and /)
-    def +(other) = self.class.new(raw + other.raw)
-    def -(other) = self.class.new(raw - other.raw)
-    def -@ = self.class.new(-raw)
+    def +(other) = _dec(raw + other.raw)
+    def -(other) = _dec(raw - other.raw)
+    def -@ = _dec(-raw)
 
     def *(other)
       product = raw * other.raw
-      self.class.new(product.negative? ? -(-product / SCALE) : product / SCALE)
+      _dec(product.negative? ? -(-product / SCALE) : product / SCALE)
     end
 
     def /(other)
       raise ZeroDivisionError, "Dec division by zero" if other.raw.zero?
       a = raw.abs * SCALE
       q = a / other.raw.abs
-      self.class.new((raw.negative? ^ other.raw.negative?) ? -q : q)
+      _dec((raw.negative? ^ other.raw.negative?) ? -q : q)
     end
 
     def quo(other) = self / other
@@ -89,7 +91,7 @@ module Num
 
     def %(other)
       raise ZeroDivisionError, "Dec modulo by zero" if other.raw.zero?
-      self.class.new(raw - other.raw * (raw / other.raw))
+      _dec(raw - other.raw * (raw / other.raw))
     end
 
     alias_method :modulo, :%
@@ -97,7 +99,7 @@ module Num
     def divmod(other)
       raise ZeroDivisionError, "Dec divmod by zero" if other.raw.zero?
       q = raw / other.raw
-      [q, self.class.new(raw - other.raw * q)]
+      [q, _dec(raw - other.raw * q)]
     end
 
     def remainder(other)
@@ -131,7 +133,7 @@ module Num
     end
 
     # Predicates
-    def abs = self.class.new(raw.abs)
+    def abs = _dec(raw.abs)
     def abs_diff(other) = (self - other).abs
     def integer? = (raw % SCALE).zero?
     def zero? = raw.zero?
@@ -139,7 +141,7 @@ module Num
     def negative? = raw.negative?
 
     # Parts
-    def fix = self.class.new(raw.negative? ? -(-raw / SCALE) * SCALE : (raw / SCALE) * SCALE)
+    def fix = _dec(raw.negative? ? -(-raw / SCALE) * SCALE : (raw / SCALE) * SCALE)
     def frac = self - fix
 
     def deconstruct = [to_i, frac]
@@ -159,7 +161,7 @@ module Num
       end
 
       factor = 10**(18 - ndigits)
-      self.class.new((raw / factor) * factor)
+      _dec((raw / factor) * factor)
     end
 
     def ceil(ndigits = 0)
@@ -173,7 +175,7 @@ module Num
 
       factor = 10**(18 - ndigits)
       q, r = raw.divmod(factor)
-      r.zero? ? self : self.class.new(q.succ * factor)
+      r.zero? ? self : _dec(q.succ * factor)
     end
 
     def round(ndigits = 0, half: :up)
@@ -194,7 +196,7 @@ module Num
 
       rounded = q * factor
       rounded = -rounded if r.negative?
-      ndigits.zero? ? rounded / SCALE : self.class.new(rounded)
+      ndigits.zero? ? rounded / SCALE : _dec(rounded)
     end
 
     def truncate(ndigits = 0)
@@ -206,9 +208,9 @@ module Num
       end
 
       factor = 10**(18 - ndigits)
-      return self.class.new(-(-raw / factor) * factor) if raw.negative?
+      return _dec(-(-raw / factor) * factor) if raw.negative?
 
-      self.class.new((raw / factor) * factor)
+      _dec((raw / factor) * factor)
     end
 
     # Conversion
@@ -252,6 +254,8 @@ module Num
 
     private
 
+    def _dec(raw) = self.class.send(:_wrap, raw)
+
     def checked
       [:ok, yield]
     rescue RangeError
@@ -281,5 +285,5 @@ ensure
   $VERBOSE = verbose
 end
 
-Num::Dec::MAX = Num::Dec.new(Num::Dec::MAX_RAW)
-Num::Dec::MIN = Num::Dec.new(Num::Dec::MIN_RAW)
+Num::Dec::MAX = Num::Dec.send(:_wrap, Num::Dec::MAX_RAW)
+Num::Dec::MIN = Num::Dec.send(:_wrap, Num::Dec::MIN_RAW)

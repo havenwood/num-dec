@@ -75,8 +75,8 @@ class DecTest < Minitest::Test
 
   # Truncate-toward-zero in * and /
   def test_mul_truncates_toward_zero
-    a = Dec.new(7)
-    assert_equal Dec.new(0), (-a) * Dec.new(3)
+    a = Dec.from("0.000000000000000007")
+    assert_equal Dec.from(0), (-a) * Dec.from("0.000000000000000003")
   end
 
   def test_div_truncates_toward_zero
