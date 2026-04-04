@@ -30,11 +30,15 @@ module Num
 
       undef_method :new
 
+      def allocate
+        raise TypeError, "allocator undefined for #{name}"
+      end
+
       private
 
       def _wrap(raw)
         raise RangeError, "Dec overflow" unless raw.between?(MIN_RAW, MAX_RAW)
-        obj = allocate
+        obj = Class.instance_method(:allocate).bind_call(self)
         obj.instance_variable_set(:@raw, raw)
         obj.freeze
         obj
