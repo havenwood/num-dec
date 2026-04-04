@@ -138,23 +138,46 @@ i128_wide_op(i128 a, i128 b, u128 factor, u128 divisor, int *overflow)
     return neg ? -(i128)q : (i128)q;
 }
 
-/* Scaled multiply and divide staying in i128. */
+/* Scaled multiply staying in i128.
+   Fast path when both operands fit in u64: product fits in u128,
+   avoids 256-bit wide_mul + wide_div entirely. */
 static i128
 i128_mul_scaled(i128 a, i128 b, int *overflow)
 {
     if (a == 0 || b == 0) return 0;
     if (a == SCALE) return b;
     if (b == SCALE) return a;
+    int neg = (a < 0) ^ (b < 0);
+    u128 aa = a < 0 ? -(u128)a : (u128)a;
     u128 bb = b < 0 ? -(u128)b : (u128)b;
+    if (aa <= UINT64_MAX && bb <= UINT64_MAX) {
+        u128 product = (u128)(uint64_t)aa * (u128)(uint64_t)bb;
+        u128 q = product / (u128)SCALE;
+        u128 limit = neg ? ((u128)1 << 127) : (((u128)1 << 127) - 1);
+        if (UNLIKELY(q > limit)) { *overflow = 1; return 0; }
+        return neg ? -(i128)q : (i128)q;
+    }
     return i128_wide_op(a, b, bb, (u128)SCALE, overflow);
 }
 
+/* Scaled divide staying in i128.
+   Fast path when |a| fits in u64: |a| * SCALE fits in u128,
+   avoids 256-bit widening. */
 static i128
 i128_div_scaled(i128 a, i128 b, int *overflow)
 {
     if (b == 0) { *overflow = 1; return 0; }
     if (a == 0) return 0;
+    int neg = (a < 0) ^ (b < 0);
+    u128 aa = a < 0 ? -(u128)a : (u128)a;
     u128 bb = b < 0 ? -(u128)b : (u128)b;
+    if (aa <= UINT64_MAX) {
+        u128 numerator = (u128)(uint64_t)aa * (u128)SCALE;
+        u128 q = numerator / bb;
+        u128 limit = neg ? ((u128)1 << 127) : (((u128)1 << 127) - 1);
+        if (UNLIKELY(q > limit)) { *overflow = 1; return 0; }
+        return neg ? -(i128)q : (i128)q;
+    }
     return i128_wide_op(a, b, (u128)SCALE, bb, overflow);
 }
 
