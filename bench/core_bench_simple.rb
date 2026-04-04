@@ -1,4 +1,5 @@
-puts "Ruby #{RUBY_VERSION} #{RUBY_DESCRIPTION.match?(/YJIT/) ? '+YJIT' : ''}"
+yjit = " +YJIT" if RUBY_DESCRIPTION.match?(/YJIT/)
+puts "Ruby #{RUBY_VERSION}#{yjit}"
 puts "=" * 60
 
 N = 5_000_000
